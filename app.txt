@@ -1,0 +1,98 @@
+const xlsx = require("xlsx");
+const cheerio = require("cheerio")
+const { log } = console;
+const excelfile = xlsx.readFile(
+    "C:/Users/miewone/Documents/카카오톡 받은 파일/instagram_review_1_가공.xlsx"
+);
+const fs =require("fs");
+const puppeteer = require("puppeteer")
+
+const sheetName = excelfile.SheetNames[0];
+const firstSheet = excelfile.Sheets[sheetName];
+
+const jsonData = xlsx.utils.sheet_to_json(firstSheet, { defval: "" });
+
+const go = async(data) => {
+
+    const browser = await puppeteer.launch({
+        headless : false
+    });
+    const page = await browser.newPage();
+
+    const returnValue= [];
+    // await page.click("#search\\.keyword\\.query");
+    for(let obj=0;obj<data.length;obj++)
+    {
+        await page.goto("https://map.kakao.com/");
+        if(!(data[obj]['관광상품명']))
+        {
+            continue;
+        }
+        log(data[obj]['관광상품명'],"검색 >>>>\n");
+        const tt = data[obj]['관광상품명'];
+        await page.evaluate( () => document.getElementById("search.keyword.query").value = "")
+        await page.type("#search\\.keyword\\.query",tt)
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(100);
+        const html = await page.content();
+        const $ = cheerio.load(html);
+        const ts = $(".PlaceItem");
+        for(let i=0;i<ts.length;i++)
+        {
+            const _$ =cheerio.load($(ts[i]).html());
+            if(_$("div.info_item > div.addr > p:nth-child(1)").text().includes("진주")) {
+                const title = _$(".link_name").text();
+                const loadAddr = _$("div.info_item > div.addr > p:nth-child(1)").text();
+                const oldAddr = _$("div.info_item > div.addr > p.lot_number").text();
+                const sales = _$("div.info_item > div.openhour > p > a").text();
+                const phone = _$(".phone").text();
+                const link = _$("div.rating.clickArea > span.score > a").attr("href").split("#")[0];
+                await page.goto(link);
+                const innerHtml = await page.content();
+                const __$ = cheerio.load(innerHtml);
+                const menu = __$("li.nophoto_type.menu_fst > div > span").text();
+                const sec_menu = __$("#mArticle > div.cont_menu > ul > li:nth-child(2) > div > span").text();
+
+                log(title,loadAddr,oldAddr,sales,phone);
+                returnValue.push({
+                    title,loadAddr,oldAddr,sales,phone,menu:{first:menu,second:sec_menu}
+                })
+            }
+
+
+        }
+        log("===========================\n ")
+    }
+    log(returnValue);
+    const file = "restaurnat.txt";
+    fs.createWriteStream(file);
+    returnValue.forEach((ele) => {
+        fs.appendFileSync(file,JSON.stringify(ele)+"\n");
+    })
+    await browser.close();
+    return returnValue;
+}
+const restaurant = []
+const rooms = []
+const event = []
+const tourist = []
+jsonData.forEach((ele) => {
+    switch(ele['관광상품분류'])
+    {
+        case "음식점" :
+            restaurant.push(ele)
+            break;
+        case "관광지" :
+            tourist.push(ele)
+            break;
+        case "행사" :
+            event.push(ele)
+            break;
+        case "숙소" :
+            rooms.push(ele)
+            break;
+    }
+});
+
+const writeData = go(restaurant);
+
